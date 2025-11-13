@@ -1,11 +1,13 @@
-use std::sync::Arc;
+use std::{rc::Rc, sync::Arc};
 
 use datafusion_common::{
     plan_err,
     tree_node::{TreeNode, TreeNodeRecursion},
     DataFusionError, Result,
 };
-use datafusion_expr::{utils::check_all_columns_from_schema, Join, LogicalPlan};
+use datafusion_expr::{
+    utils::check_all_columns_from_schema, Expr, Join, JoinType, LogicalPlan,
+};
 
 pub type NodeId = usize;
 
@@ -48,7 +50,44 @@ pub type EdgeId = usize;
 
 pub struct Edge {
     pub nodes: [NodeId; 2],
+    pub join: WrappedJoin,
+}
+
+#[derive(Clone)]
+pub struct WrappedJoin {
     pub join: Join,
+    pub wrappers: Rc<[LogicalPlan]>,
+}
+
+impl WrappedJoin {
+    pub fn on(&self) -> &[(Expr, Expr)] {
+        &self.join.on
+    }
+
+    pub fn join_type(&self) -> JoinType {
+        self.join.join_type
+    }
+
+    pub fn reconstruct(
+        &self,
+        left: LogicalPlan,
+        right: LogicalPlan,
+        on: Option<Vec<(Expr, Expr)>>,
+        join_type: Option<JoinType>,
+    ) -> Result<LogicalPlan> {
+        let join = LogicalPlan::Join(Join {
+            left: Arc::new(left),
+            right: Arc::new(right),
+            on: on.unwrap_or(self.join.on.clone()),
+            filter: self.join.filter.clone(),
+            join_type: join_type.unwrap_or(self.join.join_type),
+            join_constraint: self.join.join_constraint,
+            schema: Arc::clone(&self.join.schema),
+            null_equality: self.join.null_equality,
+        });
+
+        reconstruct_plan(join, &self.wrappers)
+    }
 }
 
 pub struct QueryGraph {
@@ -75,7 +114,7 @@ impl QueryGraph {
         &mut self,
         other: NodeId,
         node_data: Arc<LogicalPlan>,
-        edge_data: Join,
+        edge_data: WrappedJoin,
     ) -> Option<NodeId> {
         if self.nodes.contains_key(other) {
             let new_id = self.nodes.insert(Node {
@@ -89,7 +128,12 @@ impl QueryGraph {
         }
     }
 
-    fn add_edge(&mut self, from: NodeId, to: NodeId, data: Join) -> Option<EdgeId> {
+    fn add_edge(
+        &mut self,
+        from: NodeId,
+        to: NodeId,
+        data: WrappedJoin,
+    ) -> Option<EdgeId> {
         if self.nodes.contains_key(from) && self.nodes.contains_key(to) {
             let edge_id = self.edges.insert(Edge {
                 nodes: [from, to],
@@ -128,7 +172,7 @@ impl QueryGraph {
         }
     }
 
-    fn remove_edge(&mut self, edge_id: EdgeId) -> Option<Join> {
+    fn remove_edge(&mut self, edge_id: EdgeId) -> Option<WrappedJoin> {
         if let Some(edge) = self.edges.remove(edge_id) {
             // Remove the edge from both nodes' connections
             for node_id in edge.nodes {
@@ -175,8 +219,12 @@ impl QueryGraph {
 ///
 /// Returns an error if the plan doesn't contain any joins.
 pub(crate) fn extract_join_subtree(
-    plan: LogicalPlan,
-) -> Result<(LogicalPlan, Vec<LogicalPlan>)> {
+    plan: &LogicalPlan,
+) -> Result<Option<(LogicalPlan, Vec<LogicalPlan>)>> {
+    // Check if this node contains joins in its children before extraction.
+    if !contains_join(&plan) {
+        return Ok(None);
+    }
     let mut wrappers = Vec::new();
     let mut current = plan;
 
@@ -185,17 +233,9 @@ pub(crate) fn extract_join_subtree(
         match current {
             LogicalPlan::Join(_) => {
                 // Found the join subtree root
-                return Ok((current, wrappers));
+                return Ok(Some((current.clone(), wrappers)));
             }
             other => {
-                // Check if this node contains joins in its children
-                if !contains_join(&other) {
-                    return plan_err!(
-                        "Plan does not contain any join nodes: {}",
-                        other.display()
-                    );
-                }
-
                 // This node is a wrapper - store it and descend to its child
                 // For now, we only support single-child wrappers (Filter, Sort, Limit, Aggregate, etc.)
                 let inputs = other.inputs();
@@ -208,7 +248,7 @@ pub(crate) fn extract_join_subtree(
                 }
 
                 wrappers.push(other.clone());
-                current = (*inputs[0]).clone();
+                current = &inputs[0];
             }
         }
     }
@@ -234,12 +274,12 @@ pub(crate) fn extract_join_subtree(
 /// Returns an error if reconstructing any wrapper operator fails.
 pub(crate) fn reconstruct_plan(
     join_plan: LogicalPlan,
-    wrappers: Vec<LogicalPlan>,
+    wrappers: &[LogicalPlan],
 ) -> Result<LogicalPlan> {
     let mut current = join_plan;
 
     // Apply wrappers in reverse order (from innermost to outermost)
-    for wrapper in wrappers.into_iter().rev() {
+    for wrapper in wrappers.iter().rev() {
         // Use with_new_exprs to reconstruct the wrapper with the new input
         current = wrapper.with_new_exprs(wrapper.expressions(), vec![current])?;
     }
@@ -251,12 +291,9 @@ impl TryFrom<LogicalPlan> for QueryGraph {
     type Error = DataFusionError;
 
     fn try_from(value: LogicalPlan) -> Result<Self, Self::Error> {
-        // First, extract the join subtree from any wrapper operators
-        let (join_subtree, _wrappers) = extract_join_subtree(value)?;
-
         // Now convert only the join subtree to a query graph
         let mut query_graph = QueryGraph::new();
-        flatten_joins_recursive(join_subtree, &mut query_graph)?;
+        flatten_joins_recursive(value, &mut query_graph)?;
         Ok(query_graph)
     }
 }
@@ -265,8 +302,15 @@ fn flatten_joins_recursive(
     plan: LogicalPlan,
     query_graph: &mut QueryGraph,
 ) -> Result<()> {
-    match plan {
-        LogicalPlan::Join(join) => {
+    match extract_join_subtree(&plan)? {
+        // We found a leaf
+        None => {
+            query_graph.add_node(Arc::new(plan));
+        }
+        Some((join, wrappers)) => {
+            let LogicalPlan::Join(join) = join else {
+                unreachable!("`extract_join_subtree` only returns Joins");
+            };
             flatten_joins_recursive(
                 Arc::unwrap_or_clone(Arc::clone(&join.left)),
                 query_graph,
@@ -276,8 +320,11 @@ fn flatten_joins_recursive(
                 query_graph,
             )?;
 
+            let wrappers = Rc::from(wrappers);
+
             // Process each equijoin predicate to find which nodes it connects
             for (left_key, right_key) in &join.on {
+                let wrappers = Rc::clone(&wrappers);
                 // Extract column references from both join keys
                 let left_columns = left_key.column_refs();
                 let right_columns = right_key.column_refs();
@@ -323,26 +370,20 @@ fn flatten_joins_recursive(
                 if let Some(node_a) = query_graph.get_node(node_id_a) {
                     if node_a.connection_with(node_id_b, query_graph).is_none() {
                         // No edge exists yet, create one with this join
-                        query_graph.add_edge(node_id_a, node_id_b, join.clone());
+                        query_graph.add_edge(
+                            node_id_a,
+                            node_id_b,
+                            WrappedJoin {
+                                join: join.clone(),
+                                wrappers,
+                            },
+                        );
                     }
                 }
             }
-
-            Ok(())
-        }
-        x => {
-            if contains_join(&x) {
-                plan_err!(
-                    "Join reordering requires joins to be consecutive in the plan tree. \
-                     Found a non-join node that contains nested joins: {}",
-                    x.display()
-                )
-            } else {
-                query_graph.add_node(Arc::new(x));
-                Ok(())
-            }
         }
     }
+    Ok(())
 }
 
 /// Checks if a LogicalPlan contains any join nodes
@@ -468,7 +509,7 @@ mod tests {
 
         // One edge should have c_custkey = o_custkey
         let has_customer_orders = edges.iter().any(|e| {
-            e.join.on.iter().any(|(l, r)| {
+            e.join.join.on.iter().any(|(l, r)| {
                 let s = format!("{l}{r}");
                 s.contains("c_custkey") && s.contains("o_custkey")
             })
@@ -477,10 +518,10 @@ mod tests {
 
         // One edge should have o_orderkey = l_orderkey with a filter
         let has_orders_lineitem = edges.iter().any(|e| {
-            e.join.on.iter().any(|(l, r)| {
+            e.join.join.on.iter().any(|(l, r)| {
                 let s = format!("{l}{r}");
                 s.contains("o_orderkey") && s.contains("l_orderkey")
-            }) && e.join.filter.is_some()
+            }) && e.join.join.filter.is_some()
         });
         assert!(
             has_orders_lineitem,
