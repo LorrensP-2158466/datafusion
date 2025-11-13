@@ -737,6 +737,7 @@ mod tests {
     use crate::eliminate_filter::EliminateFilter;
     use crate::extract_equijoin_predicate::ExtractEquijoinPredicate;
     use crate::filter_null_join_keys::FilterNullJoinKeys;
+    use crate::optimize_projections::OptimizeProjections;
     use crate::optimizer::{Optimizer, OptimizerContext};
     use crate::push_down_filter::PushDownFilter;
     use crate::reorder_join::cost::JoinCostEstimator;
@@ -856,7 +857,8 @@ mod tests {
             Arc::new(EliminateFilter::new()),
             Arc::new(FilterNullJoinKeys::default()),
             Arc::new(PushDownFilter::new()),
-            // Note: OptimizeProjections is intentionally excluded to keep joins consecutive
+            // Lets see:
+            Arc::new(OptimizeProjections::new()),
         ]);
         let plan = optimizer.optimize(plan, &config, |_, _| {}).unwrap();
 
