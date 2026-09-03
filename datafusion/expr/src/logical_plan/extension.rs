@@ -29,24 +29,7 @@ use super::InvariantLevel;
 ///
 /// The [`UserDefinedLogicalNodeCore`] trait is *the recommended way to implement*
 /// this trait and avoids having implementing some required boiler plate code.
-pub trait UserDefinedLogicalNode: fmt::Debug + Send + Sync {
-    /// Return a reference to self as Any, to support dynamic downcasting
-    ///
-    /// Typically this will look like:
-    ///
-    /// ```
-    /// # use std::any::Any;
-    /// # struct Dummy { }
-    ///
-    /// # impl Dummy {
-    /// // canonical boiler plate
-    /// fn as_any(&self) -> &dyn Any {
-    ///     self
-    /// }
-    /// # }
-    /// ```
-    fn as_any(&self) -> &dyn Any;
-
+pub trait UserDefinedLogicalNode: Any + fmt::Debug + Send + Sync {
     /// Return the plan's name.
     fn name(&self) -> &str;
 
@@ -224,6 +207,16 @@ impl PartialOrd for dyn UserDefinedLogicalNode {
 
 impl Eq for dyn UserDefinedLogicalNode {}
 
+impl dyn UserDefinedLogicalNode {
+    pub fn is<T: UserDefinedLogicalNode>(&self) -> bool {
+        (self as &dyn Any).is::<T>()
+    }
+
+    pub fn downcast_ref<T: UserDefinedLogicalNode>(&self) -> Option<&T> {
+        (self as &dyn Any).downcast_ref()
+    }
+}
+
 /// This trait facilitates implementation of the [`UserDefinedLogicalNode`].
 ///
 /// See the example in
@@ -317,10 +310,6 @@ pub trait UserDefinedLogicalNodeCore:
 /// Automatically derive `UserDefinedLogicalNode` from `UserDefinedLogicalNodeCore`
 /// to avoid boiler plate for implementing `as_any`, `Hash`, `PartialEq` and `PartialOrd`.
 impl<T: UserDefinedLogicalNodeCore> UserDefinedLogicalNode for T {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     fn name(&self) -> &str {
         self.name()
     }
@@ -370,7 +359,7 @@ impl<T: UserDefinedLogicalNodeCore> UserDefinedLogicalNode for T {
     }
 
     fn dyn_eq(&self, other: &dyn UserDefinedLogicalNode) -> bool {
-        match other.as_any().downcast_ref::<Self>() {
+        match other.downcast_ref::<Self>() {
             Some(o) => self == o,
             None => false,
         }
@@ -378,7 +367,6 @@ impl<T: UserDefinedLogicalNodeCore> UserDefinedLogicalNode for T {
 
     fn dyn_ord(&self, other: &dyn UserDefinedLogicalNode) -> Option<Ordering> {
         other
-            .as_any()
             .downcast_ref::<Self>()
             .and_then(|other| self.partial_cmp(other))
     }

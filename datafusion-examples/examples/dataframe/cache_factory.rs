@@ -150,7 +150,7 @@ impl ExtensionPlanner for CacheNodePlanner {
         session_state: &dyn Session,
         _planning_ctx: &PhysicalPlanningContext,
     ) -> Result<Option<Arc<dyn ExecutionPlan>>> {
-        if let Some(cache_node) = node.as_any().downcast_ref::<CacheNode>() {
+        if let Some(cache_node) = node.downcast_ref::<CacheNode>() {
             assert_eq!(logical_inputs.len(), 1, "Inconsistent number of inputs");
             assert_eq!(physical_inputs.len(), 1, "Inconsistent number of inputs");
             if self

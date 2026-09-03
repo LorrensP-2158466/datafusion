@@ -221,7 +221,7 @@ impl UserDefinedLogicalNodeUnparser for PlanToStatement {
         node: &dyn UserDefinedLogicalNode,
         unparser: &Unparser,
     ) -> Result<UnparseToStatementResult> {
-        if let Some(plan) = node.as_any().downcast_ref::<MyLogicalPlan>() {
+        if let Some(plan) = node.downcast_ref::<MyLogicalPlan>() {
             let input = unparser.plan_to_sql(&plan.input)?;
             Ok(UnparseToStatementResult::Modified(input))
         } else {
@@ -269,7 +269,7 @@ impl UserDefinedLogicalNodeUnparser for PlanToSubquery {
         _select: &mut Option<&mut SelectBuilder>,
         relation: &mut Option<&mut RelationBuilder>,
     ) -> Result<UnparseWithinStatementResult> {
-        if let Some(plan) = node.as_any().downcast_ref::<MyLogicalPlan>() {
+        if let Some(plan) = node.downcast_ref::<MyLogicalPlan>() {
             let Statement::Query(input) = unparser.plan_to_sql(&plan.input)? else {
                 return Ok(UnparseWithinStatementResult::Unmodified);
             };

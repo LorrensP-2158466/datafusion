@@ -594,8 +594,7 @@ impl ExtensionPlanner for TableSampleExtensionPlanner {
         _session_state: &dyn Session,
         _planning_ctx: &PhysicalPlanningContext,
     ) -> Result<Option<Arc<dyn ExecutionPlan>>> {
-        let Some(sample_node) = node.as_any().downcast_ref::<TableSamplePlanNode>()
-        else {
+        let Some(sample_node) = node.downcast_ref::<TableSamplePlanNode>() else {
             return Ok(None);
         };
 

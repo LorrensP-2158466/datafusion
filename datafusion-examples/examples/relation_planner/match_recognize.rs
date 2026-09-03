@@ -70,7 +70,7 @@
 //! [`table_sample`]: super::table_sample
 //! [`ExecutionPlan`]: datafusion::physical_plan::ExecutionPlan
 
-use std::{any::Any, cmp::Ordering, hash::Hasher, sync::Arc};
+use std::{cmp::Ordering, hash::Hasher, sync::Arc};
 
 use arrow::array::{ArrayRef, Float64Array, Int32Array, StringArray};
 use arrow::record_batch::RecordBatch;
@@ -218,10 +218,6 @@ struct MiniMatchRecognizeNode {
 }
 
 impl UserDefinedLogicalNode for MiniMatchRecognizeNode {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     fn name(&self) -> &str {
         "MiniMatchRecognize"
     }
@@ -324,7 +320,7 @@ impl UserDefinedLogicalNode for MiniMatchRecognizeNode {
     }
 
     fn dyn_eq(&self, other: &dyn UserDefinedLogicalNode) -> bool {
-        other.as_any().downcast_ref::<Self>().is_some_and(|o| {
+        other.downcast_ref::<Self>().is_some_and(|o| {
             Arc::ptr_eq(&self.input, &o.input)
                 && self.measures == o.measures
                 && self.definitions == o.definitions

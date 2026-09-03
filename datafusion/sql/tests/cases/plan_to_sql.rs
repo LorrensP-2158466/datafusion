@@ -2345,7 +2345,7 @@ impl UserDefinedLogicalNodeUnparser for MockStatementUnparser {
         node: &dyn UserDefinedLogicalNode,
         unparser: &Unparser,
     ) -> Result<UnparseToStatementResult> {
-        if let Some(plan) = node.as_any().downcast_ref::<MockUserDefinedLogicalPlan>() {
+        if let Some(plan) = node.downcast_ref::<MockUserDefinedLogicalPlan>() {
             let input = unparser.plan_to_sql(&plan.input)?;
             Ok(UnparseToStatementResult::Modified(input))
         } else {
@@ -2424,7 +2424,7 @@ impl UserDefinedLogicalNodeUnparser for MockSqlUnparser {
         _select: &mut Option<&mut SelectBuilder>,
         relation: &mut Option<&mut RelationBuilder>,
     ) -> Result<UnparseWithinStatementResult> {
-        if let Some(plan) = node.as_any().downcast_ref::<MockUserDefinedLogicalPlan>() {
+        if let Some(plan) = node.downcast_ref::<MockUserDefinedLogicalPlan>() {
             let Statement::Query(input) = unparser.plan_to_sql(&plan.input)? else {
                 return Ok(UnparseWithinStatementResult::Unmodified);
             };

@@ -64,10 +64,7 @@ impl SerializerRegistry for MockSerializerRegistry {
         node: &dyn UserDefinedLogicalNode,
     ) -> Result<Vec<u8>> {
         if node.name() == "MockUserDefinedLogicalPlan" {
-            let node = node
-                .as_any()
-                .downcast_ref::<MockUserDefinedLogicalPlan>()
-                .unwrap();
+            let node = node.downcast_ref::<MockUserDefinedLogicalPlan>().unwrap();
             node.serialize()
         } else {
             unreachable!()
@@ -109,10 +106,6 @@ impl PartialOrd for MockUserDefinedLogicalPlan {
 }
 
 impl UserDefinedLogicalNode for MockUserDefinedLogicalPlan {
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-
     fn name(&self) -> &str {
         "MockUserDefinedLogicalPlan"
     }

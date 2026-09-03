@@ -1807,7 +1807,7 @@ impl LogicalExtensionCodec for TopKExtensionCodec {
     }
 
     fn try_encode(&self, node: &Extension, buf: &mut Vec<u8>) -> Result<()> {
-        if let Some(exec) = node.node.as_any().downcast_ref::<TopKPlanNode>() {
+        if let Some(exec) = node.node.downcast_ref::<TopKPlanNode>() {
             let proto = proto::TopKPlanProto {
                 k: exec.k as u64,
                 expr: Some(serialize_expr(&exec.expr, self)?),

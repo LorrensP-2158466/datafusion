@@ -439,7 +439,7 @@ impl OptimizerRule for OptimizerMakeExtensionNodeInvalid {
         _config: &dyn OptimizerConfig,
     ) -> Result<Transformed<LogicalPlan>, DataFusionError> {
         if let LogicalPlan::Extension(Extension { node }) = &plan
-            && let Some(prev) = node.as_any().downcast_ref::<TopKPlanNode>()
+            && let Some(prev) = node.downcast_ref::<TopKPlanNode>()
         {
             return Ok(Transformed::yes(LogicalPlan::Extension(Extension {
                 node: Arc::new(TopKPlanNode {
@@ -638,7 +638,7 @@ impl ExtensionPlanner for TopKPlanner {
         _planning_ctx: &PhysicalPlanningContext,
     ) -> Result<Option<Arc<dyn ExecutionPlan>>> {
         Ok(
-            if let Some(topk_node) = node.as_any().downcast_ref::<TopKPlanNode>() {
+            if let Some(topk_node) = node.downcast_ref::<TopKPlanNode>() {
                 assert_eq!(logical_inputs.len(), 1, "Inconsistent number of inputs");
                 assert_eq!(physical_inputs.len(), 1, "Inconsistent number of inputs");
                 // figure out input name
